@@ -41,7 +41,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/aebibtech/keysetengine-drizzle.git"
+    "url": "git+https://github.com/aebibtech/keysetengine-drizzle.git"
   },
   "homepage": "https://drizzle.keysetengine.aebibtech.com",
   "bugs": {
