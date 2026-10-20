@@ -14,7 +14,7 @@ on:
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write  # Required for npm --provenance cryptographic attestation
 
 jobs:
   publish:
@@ -34,10 +34,11 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Setup Node.js
+      - name: Setup Node.js & npm Registry
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Sync Package Version from Git Tag
         run: |
@@ -46,6 +47,18 @@ jobs:
             echo "Syncing package.json version to tag: $TAG_VERSION"
             npm version "$TAG_VERSION" --no-git-tag-version --allow-same-version
           fi
+
+      - name: Setup npm Authentication
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NODE_AUTH_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::error::NPM_TOKEN secret is not set in GitHub repository secrets! Please add NPM_TOKEN to https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+          echo "npm authentication configured successfully."
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
@@ -69,22 +82,18 @@ jobs:
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "Packed tarball: $TARBALL"
 
-      - name: Publish to npm (Trusted Publishing / Token Fallback)
+      - name: Publish to npm
         if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
         env:
-          OPTIONAL_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NODE_AUTH_TOKEN }}
         run: |
-          if [ -n "$OPTIONAL_NPM_TOKEN" ]; then
-            echo "Using NPM_TOKEN from repository secrets..."
-            echo "//registry.npmjs.org/:_authToken=${OPTIONAL_NPM_TOKEN}" > ~/.npmrc
-            npm publish --provenance --access public
-          else
-            echo "Publishing to npm via Trusted Publishing (OIDC)..."
-            npm publish --provenance --access public
-          fi
+          echo "Publishing to npm with provenance..."
+          npm publish --provenance --access public
 
       - name: Dry Run Publish Check
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NODE_AUTH_TOKEN }}
         run: |
           echo "Dry run enabled. Skipping live publish."
           npm publish --provenance --access public --dry-run
