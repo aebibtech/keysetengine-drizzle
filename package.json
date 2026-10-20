@@ -21,7 +21,11 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run build",
+    "generate:llms": "node scripts/generate-llms-full.mjs",
+    "docs:dev": "npm run generate:llms && vitepress dev docs",
+    "docs:build": "npm run generate:llms && vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "drizzle",
@@ -47,6 +51,7 @@
     "bun-types": "^1.1.42",
     "drizzle-orm": "^0.38.3",
     "tsup": "^8.3.5",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitepress": "^1.6.4"
   }
 }

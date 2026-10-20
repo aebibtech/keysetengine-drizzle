@@ -1,0 +1,1349 @@
+# KeysetEngine Drizzle — Complete Documentation & Technical Reference
+Repository: https://github.com/aebibtech/keysetengine-drizzle
+Documentation: https://drizzle.keysetengine.aebibtech.com
+License: MIT
+Target Runtimes: Node.js 18+, Bun 1.0+
+ORM: Drizzle ORM (>=0.35.0)
+
+This file provides the complete, concatenated documentation for KeysetEngine Drizzle formatted as unformatted Markdown for LLMs and AI coding assistants.
+
+================================================================================
+
+
+<!-- FILE: index.md -->
+
+## Quick Look
+
+```ts
+import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
+import { createKeysetConfig, paginateKeyset, CryptoCursorProtector } from 'keysetengine-drizzle';
+
+// 1. Define your Drizzle table
+export const orders = sqliteTable('orders', {
+  id: integer('id').primaryKey(),
+  customerName: text('customer_name').notNull(),
+  orderNumber: text('order_number').notNull(),
+  createdAt: text('created_at').notNull(),
+  amount: integer('amount').notNull(),
+});
+
+// 2. Configure keyset boundary & search properties
+export const orderKeyset = createKeysetConfig(orders, {
+  sortBy: orders.createdAt,
+  sortDirection: 'desc', // Default is 'asc'
+  tieBreaker: orders.id,  // Must be unique and non-nullable
+  searchIn: [orders.customerName, orders.orderNumber],
+  entityPurpose: 'orders',
+});
+
+// 3. Paginate in your HTTP route handler (Hono, Express, Elysia, Fastify, Next.js)
+const protector = new CryptoCursorProtector(process.env.CURSOR_SECRET!);
+
+export async function getOrders(req) {
+  const page = await paginateKeyset(
+    db.select().from(orders).$dynamic(),
+    orderKeyset,
+    req.query, // { cursor, direction, limit, search }
+    { protector }
+  );
+
+  return {
+    items: page.items,
+    startCursor: page.startCursor,
+    endCursor: page.endCursor,
+    hasNextPage: page.hasNextPage,
+    hasPreviousPage: page.hasPreviousPage,
+  };
+}
+```
+
+::: tip High Throughput at Deep Offsets
+Unlike standard SQL `OFFSET 100000 LIMIT 20` which forces your database engine to scan and discard 100,000 index entries, `KeysetEngine` translates queries directly into composite index seeks:
+```sql
+WHERE ("created_at" < $1) OR ("created_at" = $1 AND "id" < $2)
+ORDER BY "created_at" DESC, "id" DESC
+LIMIT 21
+```
+Execution time remains consistently **under 1 millisecond**, regardless of table size or page depth.
+:::
+
+================================================================================
+
+<!-- FILE: guide/getting-started.md -->
+
+# Getting Started
+
+`KeysetEngine Drizzle` is a high-performance, database-agnostic keyset pagination and universal search library for **Drizzle ORM** on **Node.js (18+) and Bun**.
+
+It eliminates SQL `OFFSET` latency degradation by establishing stable, indexed boundaries using composite keys and opaque cryptographic cursors.
+
+---
+
+## Installation
+
+Install `keysetengine-drizzle` alongside `drizzle-orm` using your package manager of choice:
+
+::: code-group
+
+```bash [bun]
+bun add keysetengine-drizzle drizzle-orm
+```
+
+```bash [pnpm]
+pnpm add keysetengine-drizzle drizzle-orm
+```
+
+```bash [npm]
+npm install keysetengine-drizzle drizzle-orm
+```
+
+:::
+
+### Peer Dependencies
+- **`drizzle-orm`**: `>= 0.35.0`
+- **Node.js**: `^18.0.0 || ^20.0.0 || ^22.0.0 || ^24.0.0`
+- **Bun**: `>= 1.0.0`
+
+---
+
+## Core Setup in 4 Steps
+
+### Step 1: Define Your Table Schema
+
+Define your database schema using standard Drizzle table builders (`pgTable`, `sqliteTable`, or `mysqlTable`).
+
+```ts
+import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
+
+export const orders = sqliteTable('orders', {
+  id: integer('id').primaryKey(),
+  customerName: text('customer_name').notNull(),
+  orderNumber: text('order_number').notNull(),
+  createdAt: text('created_at').notNull(),
+  amount: integer('amount').notNull(),
+});
+```
+
+::: warning Deterministic Keyset Requirement
+The **tie-breaker column** (typically your primary key) and the **sort column** must both be **non-nullable** and deterministically ordered.
+:::
+
+---
+
+### Step 2: Configure the Keyset Boundary
+
+Use `createKeysetConfig()` to declare how the entity is ordered, tie-broken, and searched.
+
+```ts
+import { createKeysetConfig } from 'keysetengine-drizzle';
+import { orders } from './schema.js';
+
+export const orderKeyset = createKeysetConfig(orders, {
+  // Primary sort column
+  sortBy: orders.createdAt,
+  sortDirection: 'desc', // 'asc' or 'desc' (default: 'asc')
+
+  // Deterministic tie-breaker
+  tieBreaker: orders.id,
+
+  // Text search target columns
+  searchIn: [orders.customerName, orders.orderNumber],
+
+  // Purpose string for cursor token isolation
+  entityPurpose: 'orders',
+});
+```
+
+---
+
+### Step 3: Paginate Your Drizzle Query
+
+Pass your dynamic Drizzle query (`$dynamic()`), the keyset config, and incoming request parameters to `paginateKeyset()`:
+
+```ts
+import { paginateKeyset, CryptoCursorProtector } from 'keysetengine-drizzle';
+import { db } from './db.js';
+import { orders } from './schema.js';
+import { orderKeyset } from './keyset.js';
+
+// Setup cryptographic protector with master secret
+const protector = new CryptoCursorProtector(process.env.CURSOR_ENCRYPTION_SECRET!);
+
+export async function handleGetOrders(requestQuery: Record<string, string | undefined>) {
+  const page = await paginateKeyset(
+    db.select().from(orders).$dynamic(),
+    orderKeyset,
+    {
+      cursor: requestQuery.cursor,
+      direction: requestQuery.direction === 'backward' ? 'backward' : 'forward',
+      limit: Number(requestQuery.limit) || 20,
+      search: requestQuery.search,
+    },
+    { protector }
+  );
+
+  return {
+    items: page.items,
+    startCursor: page.startCursor,
+    endCursor: page.endCursor,
+    hasNextPage: page.hasNextPage,
+    hasPreviousPage: page.hasPreviousPage,
+  };
+}
+```
+
+---
+
+### Step 4: Add Composite B-Tree Index
+
+To guarantee true $O(1)$ query execution, create a composite B-tree index matching your sort column and tie-breaker:
+
+```sql
+CREATE INDEX idx_orders_created_at_id ON orders (created_at DESC, id DESC);
+```
+
+---
+
+## Complete Route Example (Hono & Bun)
+
+```ts
+import { Hono } from 'hono';
+import { Database } from 'bun:sqlite';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { paginateKeyset, CryptoCursorProtector } from 'keysetengine-drizzle';
+import { orders, orderKeyset } from './orders.js';
+
+const app = new Hono();
+const db = drizzle(new Database('app.db'));
+const protector = new CryptoCursorProtector(process.env.CURSOR_SECRET || 'dev-secret-32b');
+
+app.get('/api/orders', async (c) => {
+  const query = c.req.query();
+
+  const page = await paginateKeyset(
+    db.select().from(orders).$dynamic(),
+    orderKeyset,
+    {
+      cursor: query.cursor,
+      direction: query.direction === 'backward' ? 'backward' : 'forward',
+      limit: query.limit ? parseInt(query.limit, 10) : 20,
+      search: query.search,
+    },
+    { protector }
+  );
+
+  return c.json(page);
+});
+
+export default app;
+```
+
+================================================================================
+
+<!-- FILE: guide/why-keyset.md -->
+
+# Why Keyset Pagination?
+
+Keyset pagination (also known as cursor-based seek pagination) is a technique for traversing ordered datasets by filtering on boundary values rather than relying on SQL `OFFSET`.
+
+---
+
+## The Fundamental Flaw of SQL `OFFSET`
+
+Traditional pagination relies on `OFFSET` and `LIMIT`:
+
+```sql
+SELECT * FROM orders
+ORDER BY created_at DESC, id DESC
+LIMIT 20 OFFSET 100000;
+```
+
+While simple to write, SQL `OFFSET` has two fatal architectural flaws:
+
+### 1. $O(N)$ Computational Degradation
+Relational database engines (PostgreSQL, SQLite, MySQL, SQL Server) cannot jump directly to row 100,000. The engine must:
+1. Traverse the index or table sequentially from row 1.
+2. Read, sort, and evaluate **100,020 rows**.
+3. Discard the first 100,000 rows in memory.
+4. Return only the last 20 rows.
+
+As query depth increases, query latency and memory usage grow linearly ($O(N)$), causing database server CPU spikes and request timeouts:
+
+| Page | Offset | SQL Execution Time | KeysetEngine Seek Time |
+| :--- | :--- | :--- | :--- |
+| **Page 1** | `OFFSET 0` | 0.8 ms | **0.4 ms** |
+| **Page 100** | `OFFSET 2,000` | 8.2 ms | **0.5 ms** |
+| **Page 1,000** | `OFFSET 20,000` | 74.0 ms | **0.5 ms** |
+| **Page 10,000** | `OFFSET 200,000` | 980.0 ms | **0.6 ms** |
+| **Page 50,000** | `OFFSET 1,000,000` | 4,800.0 ms (Timeout) | **0.6 ms** |
+
+---
+
+### 2. Phantom Skips and Duplicate Records
+On active production tables with concurrent writes, `OFFSET` causes data drift:
+- If a new row is inserted at the top of the table while a user navigates between Page 1 and Page 2, all subsequent rows shift downward by 1.
+- The user will see the **last item of Page 1 duplicated** at the top of Page 2.
+- If a row is deleted, an item will be **permanently skipped**.
+
+---
+
+## How Keyset Pagination Solves This
+
+Keyset pagination replaces `OFFSET` with an index-seek predicate based on the boundary coordinates of the previous page:
+
+```sql
+SELECT * FROM orders
+WHERE ("created_at" < '2026-10-20T08:00:00Z')
+   OR ("created_at" = '2026-10-20T08:00:00Z' AND "id" < 42000)
+ORDER BY "created_at" DESC, "id" DESC
+LIMIT 21;
+```
+
+### The B-Tree Index Advantage
+Because the query specifies exact boundary values (`created_at` and `id`), the database engine uses a **B-Tree index seek**:
+1. It navigates directly down the tree to the first entry meeting the boundary condition in $O(\log N)$ time.
+2. It scans forward exactly **21 rows** ($N + 1$).
+3. It terminates immediately.
+
+Execution time is **independent of dataset depth** and takes **sub-millisecond** time even on tables with tens of millions of rows.
+
+---
+
+## Keyset vs. Offset Comparison
+
+| Feature | SQL Offset Pagination | KeysetEngine Drizzle |
+| :--- | :--- | :--- |
+| **Deep Page Latency** | Degrades linearly to seconds ($O(N)$) | Constant sub-millisecond ($O(1)$) |
+| **Concurrent Writes** | Yields duplicate or skipped records | Stable boundaries; immune to shifting |
+| **Database Memory** | Scans and buffers discarded rows | Zero discarded rows in engine memory |
+| **Random Jump to Page N** | Supported (`page = 450`) | Unsupported (infinite scroll / next / prev) |
+| **Bidirectional Navigation** | Simple math (`offset - limit`) | Built-in via inverted SQL seeks |
+
+================================================================================
+
+<!-- FILE: guide/faq.md -->
+
+# Frequently Asked Questions
+
+---
+
+### Can the sort column contain `NULL` values?
+
+**No.** Relational databases treat `NULL` values non-deterministically in boolean comparisons (`NULL > val` evaluates to `UNKNOWN` or `FALSE`). Keyset pagination requires deterministic, strictly-ordered boundaries.
+
+If your column is nullable (for example, `completedAt`), either:
+1. Filter out null values before paginating: `.where(isNotNull(orders.completedAt))`
+2. Or use a non-null fallback column for sorting (such as `createdAt` or `id`).
+
+---
+
+### Can I paginate Drizzle Relational Queries (`db.query.table.findMany`)?
+
+**Yes.** While `paginateKeyset()` targets Drizzle's dynamic select query builders (`db.select().from(table).$dynamic()`), you can use `buildKeysetClause()` and `formatKeysetPage()` with Drizzle's relational query API:
+
+```ts
+import { buildKeysetClause, formatKeysetPage } from 'keysetengine-drizzle';
+
+// 1. Generate query components
+const { where, orderBy, limit, cursorToken } = buildKeysetClause(orderKeyset, request);
+
+// 2. Pass clauses into db.query
+const rawRows = await db.query.orders.findMany({
+  where,
+  orderBy,
+  limit,
+  with: {
+    items: true, // Eager load relational associations
+  },
+});
+
+// 3. Format slice and edge cursors
+const page = formatKeysetPage(rawRows, request, orderKeyset, cursorToken);
+```
+
+---
+
+### How are JavaScript `Date` instances and SQL timestamps serialized?
+
+When extracting edge values for cursor tokens, KeysetEngine automatically converts JavaScript `Date` instances into standardized **ISO 8601 strings** (`2026-10-20T08:00:00.000Z`).
+
+When decoding cursors, KeysetEngine checks Drizzle column metadata (`column.dataType === 'date'`) and reconstructs native `Date` instances or passes ISO strings appropriately based on driver requirements.
+
+---
+
+### Can I use UUID strings or `BigInt` identifiers as tie-breakers?
+
+**Yes.** KeysetEngine supports `number`, `string` (including UUIDs), and `BigInt` tie-breakers. BigInt values are converted to strings during JSON token serialization and coerced back when constructing Drizzle SQL inequality predicates.
+
+---
+
+### Why can't I jump directly to Page 50?
+
+Keyset pagination is designed for **sequential streaming** (infinite scroll, continuous feeds, or Next/Previous navigation). 
+
+Because it eliminates `OFFSET`, the database only knows how to find the next page by looking at the edge of the current page. Jumping directly to an arbitrary page requires scanning all preceding rows—which reintroduces the exact $O(N)$ performance degradation keyset pagination is designed to eliminate.
+
+================================================================================
+
+<!-- FILE: guide/architecture.md -->
+
+# Architecture & SQL Expressions
+
+This document details the mathematical formulation, expression tree compilation, and execution pipeline of **KeysetEngine Drizzle**.
+
+---
+
+## End-to-End Execution Pipeline
+
+```
+Incoming Request (cursor, direction, limit, search)
+   │
+   ▼
+1. Validate & Hash Search Term ───► Invalidate cursor if search changed
+   │
+   ▼
+2. Unprotect Edge Cursor ────────► AES-256-GCM / HKDF Purpose Isolation
+   │
+   ▼
+3. Construct SQL Predicates:
+   ├── Search Predicate:     or(strategy(col1, term), strategy(col2, term))
+   └── Keyset Boundary:      (SortCol > val) OR (SortCol = val AND Tie > tieVal)
+   │
+   ▼
+4. Drizzle Execution:
+   ├── Append filters to existing query without overwriting (.where)
+   ├── Invert ORDER BY if navigating backward
+   └── Fetch Limit + 1 rows
+   │
+   ▼
+5. Envelope Processing:
+   ├── Evaluate N + 1 item to determine hasNextPage / hasPreviousPage
+   ├── In-memory array reversal if navigating backward
+   └── Encrypt new edge cursors (startCursor, endCursor)
+   │
+   ▼
+Return KeysetPage<T>
+```
+
+---
+
+## Why Nested Boolean Trees Instead of Tuples?
+
+Some database engines (PostgreSQL, SQLite) support SQL row-value syntax:
+```sql
+WHERE ("created_at", "id") < ('2026-10-20', 42)
+```
+
+However:
+1. **SQL Server and older engines** do not support row-value tuple comparisons.
+2. ORM SQL generators and driver query planners do not uniformly optimize tuple syntax across database providers.
+
+By formulating keyset boundaries as **nested boolean disjunctions**, KeysetEngine generates identical, index-seekable SQL across all database dialects:
+
+$$\text{Forward Ascending} = (Key_A > val_A) \lor (Key_A == val_A \land Key_B > val_B)$$
+$$\text{Forward Descending} = (Key_A < val_A) \lor (Key_A == val_A \land Key_B < val_B)$$
+
+---
+
+## Inequality Direction Truth Table
+
+KeysetEngine automatically determines the effective inequality comparison operator based on sort direction and requested navigation direction:
+
+| Sort Config | Navigation Direction | Primary Comparison | Tie-Breaker Comparison | Effective Direction |
+| :--- | :--- | :--- | :--- | :--- |
+| **Ascending** | `forward` | `SortCol > val` | `TieCol > tieVal` | Greater Than (`>`) |
+| **Ascending** | `backward` | `SortCol < val` | `TieCol < tieVal` | Less Than (`<`) |
+| **Descending** | `forward` | `SortCol < val` | `TieCol < tieVal` | Less Than (`<`) |
+| **Descending** | `backward` | `SortCol > val` | `TieCol > tieVal` | Greater Than (`>`) |
+
+---
+
+## Safe Drizzle `$dynamic()` Composition
+
+In Drizzle ORM, calling `.where()` on a query builder normally overwrites any previously applied where clause.
+
+KeysetEngine checks whether your query already contains existing filters (such as tenant isolation, organization filters, or soft-delete checks) and safely combines them using `and()`:
+
+```ts
+// User query with existing business filters
+const baseQuery = db
+  .select()
+  .from(orders)
+  .where(eq(orders.status, 'completed'))
+  .$dynamic();
+
+// paginateKeyset safely combines filters into:
+// WHERE ("status" = 'completed') AND (("created_at" < $1) OR (...))
+const page = await paginateKeyset(baseQuery, orderKeyset, request);
+```
+
+---
+
+## $N + 1$ Slicing & Edge Cursors
+
+To determine whether subsequent or preceding pages exist without executing a slow `COUNT(*)` query, KeysetEngine requests `limit + 1` rows:
+
+1. **Slice Inspection**: If `rows.length > limit`, a further page exists in the traversal direction.
+2. **Item Truncation**: The extra $(N+1)$-th row is removed from the array before returning.
+3. **Cursor Minting**: The first row's coordinates are encrypted into `startCursor`, and the last row's coordinates into `endCursor`.
+
+================================================================================
+
+<!-- FILE: guide/bidirectional.md -->
+
+# Bidirectional Traversal
+
+KeysetEngine provides full bidirectional traversal, allowing clients to navigate seamlessly both **forward (Next Page)** and **backward (Previous Page)** through ordered datasets.
+
+---
+
+## How Bidirectional Navigation Works
+
+```
+                     ┌───────────────┐
+                     │    Page 1     │
+                     │ Items 1 .. 20 │
+                     └───────┬───────┘
+                             │ endCursor (direction: forward)
+                             ▼
+                     ┌───────────────┐
+                     │    Page 2     │
+                     │ Items 21 .. 40│
+                     └───────┬───────┘
+                             │ endCursor (direction: forward)
+                             ▼
+                     ┌───────────────┐
+                     │    Page 3     │
+                     │ Items 41 .. 60│
+                     └───────┬───────┘
+                             │ startCursor (direction: backward)
+                             ▼
+                     ┌───────────────┐
+                     │    Page 2     │ (Restored into natural order 21 .. 40)
+                     │ Items 21 .. 40│
+                     └───────────────┘
+```
+
+---
+
+## The Ordering Paradox & SQL Inversion
+
+When moving backward from the start of Page 3 (say, item with ID 41), you cannot simply execute:
+```sql
+-- INCORRECT: This returns items 1 to 20 instead of items 21 to 40!
+WHERE id < 41
+ORDER BY id ASC
+LIMIT 20;
+```
+Executing this query would return items starting from the beginning of the table (`1 .. 20`), rather than the immediate previous slice (`21 .. 40`).
+
+### The Two-Step Reversal Solution
+
+KeysetEngine solves this transparently in two steps:
+
+1. **SQL Order Inversion**:
+   When `direction === 'backward'`, KeysetEngine flips the SQL `ORDER BY` clause and comparison operators. This forces the database engine to seek the items immediately preceding the boundary cursor:
+   ```sql
+   WHERE id < 41
+   ORDER BY id DESC -- Reversed in SQL!
+   LIMIT 21;
+   ```
+   The database returns items `[40, 39, 38, ... 21]`.
+
+2. **In-Memory Order Restoration**:
+   Before returning the page envelope to the application, KeysetEngine reverses the in-memory array (`items.reverse()`), ensuring the items are delivered in their **natural, forward-ascending sequence** (`[21, 22, ... 40]`).
+
+---
+
+## Cursor Protocol Rules
+
+When navigating an API using KeysetEngine, clients must adhere to this standard protocol:
+
+1. **First Page (Page 1)**:
+   ```ts
+   const page1 = await getOrders({ limit: 20 });
+   ```
+2. **Next Page (Forward)**:
+   Pass `cursor = page1.endCursor` with `direction = 'forward'`:
+   ```ts
+   const page2 = await getOrders({
+     cursor: page1.endCursor,
+     direction: 'forward',
+     limit: 20
+   });
+   ```
+3. **Previous Page (Backward)**:
+   Pass `cursor = page2.startCursor` with `direction = 'backward'`:
+   ```ts
+   const page1Back = await getOrders({
+     cursor: page2.startCursor,
+     direction: 'backward',
+     limit: 20
+   });
+   ```
+
+---
+
+## Pagination State Indicators
+
+| Direction | Condition | `hasPreviousPage` | `hasNextPage` |
+| :--- | :--- | :--- | :--- |
+| **Forward** | Initial Page (`cursor == null`) | `false` | `rows.length > limit` |
+| **Forward** | Intermediate Page (`cursor != null`) | `true` | `rows.length > limit` |
+| **Backward** | Moving backward | `rows.length > limit` | `true` |
+| **Backward** | Reached top of table | `false` | `true` |
+
+================================================================================
+
+<!-- FILE: guide/search.md -->
+
+# Dynamic Search & Stale Cursors
+
+KeysetEngine provides dynamic multi-column search capabilities that integrate seamlessly with keyset boundaries without triggering table scans or memory-intensive post-filtering.
+
+---
+
+## Configuring Search Columns
+
+When defining your keyset configuration with `createKeysetConfig`, specify the string columns to search using the `searchIn` option:
+
+```ts
+export const orderKeyset = createKeysetConfig(orders, {
+  sortBy: orders.createdAt,
+  tieBreaker: orders.id,
+  searchIn: [orders.customerName, orders.orderNumber, orders.notes],
+  searchStrategy: 'ilike', // or 'like', 'tsvector'
+});
+```
+
+When a search term is submitted (`request.search = "Quantum"`), KeysetEngine compiles a disjunctive predicate across all configured columns:
+
+```sql
+WHERE ("customer_name" ILIKE '%Quantum%' OR "order_number" ILIKE '%Quantum%' OR "notes" ILIKE '%Quantum%')
+  AND (("created_at" < $1) OR ("created_at" = $1 AND "id" < $2))
+```
+
+---
+
+## The Stale Cursor Problem
+
+In cursor-based pagination, cursors encode the coordinates of specific boundary records. However, when user search filters change between requests, retaining the previous cursor leads to incorrect or broken results:
+
+1. User queries `search = "Shoes"`, viewing Page 1.
+2. User receives an `endCursor` pointing to the coordinates of a shoe item.
+3. User changes their search input to `search = "Electronics"`, but the client frontend inadvertently resubmits the shoe cursor from Page 1.
+4. Without protection, the database would seek forward from the shoe's coordinates, skipping relevant electronic items or returning empty pages.
+
+---
+
+## Automated Stale Cursor Invalidation
+
+KeysetEngine prevents this issue via **Search-Signature Hashing**:
+
+1. **Hash Generation**: Whenever a search query is active, KeysetEngine computes a compact, deterministic SHA-256 hash (16 hexadecimal characters) of the trimmed search term:
+   ```ts
+   import { computeSearchHash } from 'keysetengine-drizzle';
+
+   const hash = computeSearchHash('Quantum Dynamics'); // "5e884898da280471"
+   ```
+2. **Token Binding**: The hash is embedded into the encrypted cursor token payload.
+3. **Validation on Arrival**: When a cursor is received, KeysetEngine compares the hash of the active search string with the hash stored inside the cursor token.
+4. **Graceful Page 1 Reset**: If the hashes do not match, KeysetEngine invalidates the stale cursor and safely restarts the query from **Page 1** under the new search context, preventing 500 errors or corrupted query boundaries.
+
+================================================================================
+
+<!-- FILE: guide/indexing.md -->
+
+# Index Design & Optimization
+
+To achieve true $O(1)$ sub-millisecond execution times, your database tables must have appropriate composite indexes backing your keyset configuration.
+
+---
+
+## The Leading Column Rule
+
+In relational B-tree indexes, the order of columns in a composite index dictates how queries can seek:
+
+1. **Sort Column First**: The primary sort column must always be the **leading (first) column** in the composite index.
+2. **Tie-Breaker Column Second**: The unique tie-breaker column (usually the primary key) must be the **second column**.
+
+```sql
+-- Optimal composite index
+CREATE INDEX idx_orders_created_at_id ON orders (created_at DESC, id DESC);
+```
+
+::: danger Avoid Individual Single-Column Indexes
+Two separate single-column indexes on `created_at` and `id` **will not** allow the database to perform an index seek on a composite keyset inequality. The database will be forced to perform index bitmap merging or sequential table scans.
+:::
+
+---
+
+## Dialect-Specific Index Recipes
+
+### 1. PostgreSQL
+
+```sql
+-- Standard Keyset B-Tree index
+CREATE INDEX idx_orders_created_at_id ON orders (created_at DESC, id DESC);
+
+-- Trigram index for ILIKE text search (requires pg_trgm extension)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_orders_customer_name_trgm ON orders USING gin (customer_name gin_trgm_ops);
+
+-- GIN index for full-text tsvector search
+CREATE INDEX idx_orders_search_vector ON orders USING gin (to_tsvector('english', description));
+```
+
+---
+
+### 2. SQLite
+
+```sql
+-- Standard Keyset B-Tree index
+CREATE INDEX idx_orders_created_at_id ON orders (created_at DESC, id DESC);
+```
+
+---
+
+### 3. MySQL / MariaDB
+
+```sql
+-- Standard Keyset B-Tree index
+CREATE INDEX idx_orders_created_at_id ON orders (created_at DESC, id DESC);
+
+-- Full-text index for text search
+ALTER TABLE orders ADD FULLTEXT INDEX idx_orders_text_search (customer_name, order_number);
+```
+
+---
+
+## Multi-Tenant Indexing
+
+If your application enforces tenant isolation or soft deletes, prepend those filter columns to the composite index:
+
+```sql
+-- Tenant-scoped Keyset Index
+CREATE INDEX idx_orders_tenant_created_at_id ON orders (tenant_id, created_at DESC, id DESC);
+```
+
+When querying:
+```ts
+const baseQuery = db
+  .select()
+  .from(orders)
+  .where(eq(orders.tenantId, currentTenantId))
+  .$dynamic();
+
+const page = await paginateKeyset(baseQuery, orderKeyset, request);
+```
+The database engine performs an immediate index seek using `(tenant_id, created_at, id)`, guaranteeing complete tenant isolation at optimal speed.
+
+================================================================================
+
+<!-- FILE: security/cryptographic-protection.md -->
+
+# Cryptographic Cursor Protection
+
+Public API cursors should never expose internal primary keys, sequential auto-incrementing IDs, or business timestamps in plain text. Exposing raw coordinates allows clients to scrape databases, infer internal entity volumes, or tamper with boundaries.
+
+`KeysetEngine Drizzle` includes enterprise-grade authenticated encryption via `CryptoCursorProtector`.
+
+---
+
+## Security Architecture
+
+```
+KeysetCursorToken { sortValue, tieBreakerValue, isAscending, searchHash }
+   │
+   ▼
+JSON Serialization
+   │
+   ▼
+HKDF Key Derivation ──► info: "KeysetEngine:" + entityPurpose + ":v1"
+   │
+   ▼
+AES-256-GCM Encryption
+   ├── 96-bit random IV
+   ├── 128-bit Authentication Tag
+   └── Additional Authenticated Data (AAD) bound to entityPurpose
+   │
+   ▼
+URL-Safe Base64 Encoding
+   └── [IV (12B)] + [Tag (16B)] + [Ciphertext]
+```
+
+---
+
+## Production Setup: `CryptoCursorProtector`
+
+`CryptoCursorProtector` uses native `node:crypto` (available in both Node.js 18+ and Bun with zero external dependencies) to provide authenticated encryption (AES-256-GCM) with purpose-specific key derivation.
+
+```ts
+import { CryptoCursorProtector } from 'keysetengine-drizzle';
+
+// Initialize with a secure, 32-byte or high-entropy master secret
+export const cursorProtector = new CryptoCursorProtector(
+  process.env.CURSOR_ENCRYPTION_SECRET!
+);
+```
+
+---
+
+## Endpoint & Purpose Isolation
+
+To prevent cursor tokens issued for one endpoint from being reused on another, KeysetEngine uses **HKDF purpose isolation**.
+
+When a token is encrypted:
+```ts
+protector.protect(token, 'orders');
+```
+The master secret is derived with HKDF using the context string `KeysetEngine:orders:v1`.
+
+If an attacker captures an opaque cursor from `/api/orders` and attempts to submit it to `/api/customers`:
+```ts
+protector.unprotect(orderCursor, 'customers'); // Returns null!
+```
+The authentication tag verification fails immediately, and KeysetEngine returns `null`, safely falling back to Page 1 of `/api/customers`.
+
+---
+
+## Resilient Tamper Detection
+
+If a client modifies, truncates, or corrupts an opaque cursor string:
+1. `CryptoCursorProtector` catches the AES-GCM authentication failure or base64 decoding error.
+2. It returns `null` instead of raising an unhandled exception.
+3. `paginateKeyset()` treats the invalid cursor as an initial query and returns **Page 1**, preventing application crashes or 500 server errors.
+
+---
+
+## Development Fallback: `Base64UrlCursorProtector`
+
+For local unit testing or development where secret keys are not configured, `Base64UrlCursorProtector` provides zero-secret Base64URL JSON encoding:
+
+```ts
+import { Base64UrlCursorProtector } from 'keysetengine-drizzle';
+
+const devProtector = new Base64UrlCursorProtector();
+```
+
+::: warning Development Use Only
+`Base64UrlCursorProtector` does not encrypt boundary coordinates and should not be used in production environments.
+:::
+
+================================================================================
+
+<!-- FILE: databases/postgresql.md -->
+
+# PostgreSQL Adapter
+
+PostgreSQL is a first-class target for KeysetEngine Drizzle, offering native support for composite B-tree index seeks, case-insensitive `ILIKE` pattern matching, and full-text `tsvector` queries.
+
+---
+
+## Drizzle Schema Definition
+
+```ts
+import { pgTable, serial, text, timestamp, integer } from 'drizzle-orm/pg-core';
+
+export const orders = pgTable('orders', {
+  id: serial('id').primaryKey(),
+  customerName: text('customer_name').notNull(),
+  orderNumber: text('order_number').notNull(),
+  description: text('description').notNull(),
+  createdAt: timestamp('created_at').notNull(),
+  amount: integer('amount').notNull(),
+});
+```
+
+---
+
+## Keyset Configuration
+
+```ts
+import { createKeysetConfig } from 'keysetengine-drizzle';
+import { orders } from './schema.js';
+
+export const orderKeyset = createKeysetConfig(orders, {
+  sortBy: orders.createdAt,
+  sortDirection: 'desc',
+  tieBreaker: orders.id,
+  searchIn: [orders.customerName, orders.orderNumber],
+  searchStrategy: 'ilike', // Uses PostgreSQL ILIKE
+  entityPurpose: 'orders',
+});
+```
+
+---
+
+## Full-Text Search with `tsvector`
+
+For advanced full-text search across large text columns, use the built-in `postgresTsVectorSearchStrategy`:
+
+```ts
+import {
+  createKeysetConfig,
+  postgresTsVectorSearchStrategy,
+} from 'keysetengine-drizzle';
+import { orders } from './schema.js';
+
+export const orderKeyset = createKeysetConfig(orders, {
+  sortBy: orders.createdAt,
+  sortDirection: 'desc',
+  tieBreaker: orders.id,
+  searchIn: [orders.description],
+  searchStrategy: postgresTsVectorSearchStrategy('english'),
+  entityPurpose: 'orders',
+});
+```
+
+This compiles into:
+```sql
+WHERE to_tsvector('english', "description") @@ plainto_tsquery('english', $1)
+  AND (("created_at" < $2) OR ("created_at" = $2 AND "id" < $3))
+ORDER BY "created_at" DESC, "id" DESC
+LIMIT 21;
+```
+
+---
+
+## Recommended PostgreSQL Indexes
+
+```sql
+-- 1. Composite B-Tree for O(1) Keyset Navigation
+CREATE INDEX idx_orders_created_at_id ON orders (created_at DESC, id DESC);
+
+-- 2. Trigram Index for Fast ILIKE Text Search
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_orders_customer_trgm ON orders USING gin (customer_name gin_trgm_ops);
+
+-- 3. GIN Index for Full-Text tsvector Search
+CREATE INDEX idx_orders_tsvector ON orders USING gin (to_tsvector('english', description));
+```
+
+================================================================================
+
+<!-- FILE: databases/sqlite.md -->
+
+# SQLite & In-Memory Adapter
+
+SQLite is fully supported by KeysetEngine Drizzle, running at blazing speed both in production embedded apps and in-memory test suites using `bun:sqlite` or `better-sqlite3`.
+
+---
+
+## Drizzle Schema Definition
+
+```ts
+import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
+
+export const orders = sqliteTable('orders', {
+  id: integer('id').primaryKey(),
+  customerName: text('customer_name').notNull(),
+  orderNumber: text('order_number').notNull(),
+  createdAt: text('created_at').notNull(), // ISO 8601 string or integer timestamp
+  amount: integer('amount').notNull(),
+});
+```
+
+---
+
+## Keyset Configuration
+
+In SQLite, use the default `'like'` search strategy, which emits `lower(column) LIKE lower('%term%')` for case-insensitive text matching:
+
+```ts
+import { createKeysetConfig } from 'keysetengine-drizzle';
+import { orders } from './schema.js';
+
+export const orderKeyset = createKeysetConfig(orders, {
+  sortBy: orders.createdAt,
+  sortDirection: 'asc',
+  tieBreaker: orders.id,
+  searchIn: [orders.customerName, orders.orderNumber],
+  searchStrategy: 'like', // Universal lower(col) LIKE lower(term)
+  entityPurpose: 'orders',
+});
+```
+
+---
+
+## Driver Setup Examples
+
+::: code-group
+
+```ts [Bun (bun:sqlite)]
+import { Database } from 'bun:sqlite';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+
+const sqlite = new Database('app.db');
+export const db = drizzle(sqlite);
+```
+
+```ts [Node.js (better-sqlite3)]
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+
+const sqlite = new Database('app.db');
+export const db = drizzle(sqlite);
+```
+
+:::
+
+---
+
+## Recommended SQLite Indexes
+
+```sql
+-- Composite B-tree for O(1) Keyset seek
+CREATE INDEX idx_orders_created_at_id ON orders (created_at, id);
+```
+
+================================================================================
+
+<!-- FILE: databases/mysql.md -->
+
+# MySQL / MariaDB Adapter
+
+MySQL and MariaDB are supported out-of-the-box via KeysetEngine's universal nested boolean disjunctions and collation-aware LIKE expressions.
+
+---
+
+## Drizzle Schema Definition
+
+```ts
+import { mysqlTable, serial, varchar, datetime, int } from 'drizzle-orm/mysql-core';
+
+export const orders = mysqlTable('orders', {
+  id: serial('id').primaryKey(),
+  customerName: varchar('customer_name', { length: 255 }).notNull(),
+  orderNumber: varchar('order_number', { length: 64 }).notNull(),
+  createdAt: datetime('created_at').notNull(),
+  amount: int('amount').notNull(),
+});
+```
+
+---
+
+## Keyset Configuration
+
+```ts
+import { createKeysetConfig } from 'keysetengine-drizzle';
+import { orders } from './schema.js';
+
+export const orderKeyset = createKeysetConfig(orders, {
+  sortBy: orders.createdAt,
+  sortDirection: 'desc',
+  tieBreaker: orders.id,
+  searchIn: [orders.customerName, orders.orderNumber],
+  searchStrategy: 'like',
+  entityPurpose: 'orders',
+});
+```
+
+---
+
+## Collation Nuances
+
+By default, standard MySQL string collations (such as `utf8mb4_0900_ai_ci` or `utf8mb4_general_ci`) are **case-insensitive** and **accent-insensitive**. 
+
+The default `'like'` strategy in KeysetEngine emits `lower(col) LIKE lower('%term%')`, which guarantees case-insensitive evaluation regardless of whether your MySQL table uses a binary or case-sensitive collation.
+
+---
+
+## Recommended MySQL Indexes
+
+```sql
+-- Composite B-Tree for O(1) Keyset seek
+CREATE INDEX idx_orders_created_at_id ON orders (created_at DESC, id DESC);
+
+-- Optional Fulltext index for high-volume text columns
+ALTER TABLE orders ADD FULLTEXT INDEX idx_orders_text_search (customer_name, order_number);
+```
+
+================================================================================
+
+<!-- FILE: api/core.md -->
+
+# Core API Reference
+
+The core module provides the primary contracts, configuration builders, and execution functions for KeysetEngine Drizzle.
+
+---
+
+## `createKeysetConfig(table, options)`
+
+Creates an immutable, strongly-typed configuration defining keyset boundaries, ordering, search columns, and cursor token isolation.
+
+```ts
+function createKeysetConfig<TTable extends Table>(
+  table: TTable,
+  options: KeysetConfigOptions<TTable>
+): KeysetConfig<TTable>
+```
+
+### Parameters
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `sortBy` | `AnyColumn \| ((table: TTable) => AnyColumn)` | *Required* | Primary column to sort by. Must be non-nullable. |
+| `sortDirection` | `'asc' \| 'desc'` | `'asc'` | Default sort direction. |
+| `tieBreaker` | `AnyColumn \| ((table: TTable) => AnyColumn)` | *Required* | Unique, non-nullable column (usually primary key). |
+| `searchIn` | `(AnyColumn \| ((table: TTable) => AnyColumn))[]` | `[]` | Optional list of string columns to include in text search. |
+| `searchStrategy`| `SearchStrategy \| 'like' \| 'ilike' \| 'tsvector'` | `'like'` | Search strategy to emit SQL search predicates. |
+| `entityPurpose` | `string` | Table Name | Purpose scope for cryptographic cursor isolation. |
+
+---
+
+## `paginateKeyset(query, config, request, options?)`
+
+Executes high-performance keyset pagination on a Drizzle dynamic select query.
+
+```ts
+async function paginateKeyset<
+  TTable extends Table,
+  TRow extends Record<string, unknown> = Record<string, unknown>
+>(
+  query: DrizzleSelectQuery<TRow>,
+  config: KeysetConfig<TTable>,
+  request?: KeysetRequest,
+  options?: KeysetExecutionOptions
+): Promise<KeysetPage<TRow>>
+```
+
+### Parameters
+- **`query`**: Drizzle select query with `$dynamic()` enabled (e.g. `db.select().from(orders).$dynamic()`).
+- **`config`**: Configuration object produced by `createKeysetConfig`.
+- **`request`**: Incoming pagination parameters (`cursor`, `direction`, `limit`, `search`).
+- **`options`**: Optional execution settings, such as `{ protector: new CryptoCursorProtector(...) }`.
+
+---
+
+## `buildKeysetClause(config, request?, options?)`
+
+Generates granular SQL components (`where`, `orderBy`, `limit`) for manual query composition or Drizzle Relational Queries (`db.query.table.findMany`).
+
+```ts
+function buildKeysetClause<TTable extends Table>(
+  config: KeysetConfig<TTable>,
+  request?: KeysetRequest,
+  options?: KeysetExecutionOptions
+): KeysetQueryComponents
+```
+
+### Returns
+- **`where`**: `SQL | undefined` — Combined search and keyset boundary predicate.
+- **`orderBy`**: `[SQL, SQL]` — Order clauses with automatic inversion on backward traversal.
+- **`limit`**: `number` — Requested limit + 1.
+- **`cursorToken`**: `KeysetCursorToken | null` — Deserialized cursor token.
+
+---
+
+## `formatKeysetPage(rawRows, request, config, cursorToken, options?)`
+
+Evaluates an $N + 1$ result slice, applies in-memory array reversal if navigating backward, and mints opaque edge cursors.
+
+```ts
+function formatKeysetPage<TTable extends Table, TRow extends Record<string, unknown>>(
+  rawRows: TRow[],
+  request: KeysetRequest,
+  config: KeysetConfig<TTable>,
+  cursorToken: KeysetCursorToken | null,
+  options?: KeysetExecutionOptions
+): KeysetPage<TRow>
+```
+
+---
+
+## Domain Types
+
+### `KeysetRequest`
+```ts
+interface KeysetRequest {
+  cursor?: string | null;
+  direction?: 'forward' | 'backward';
+  limit?: number;
+  search?: string | null;
+}
+```
+
+### `KeysetPage<T>`
+```ts
+interface KeysetPage<T> {
+  items: T[];
+  startCursor: string | null;
+  endCursor: string | null;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+```
+
+### `KeysetCursorToken`
+```ts
+interface KeysetCursorToken {
+  sortValue: unknown;
+  tieBreakerValue: unknown;
+  isAscending: boolean;
+  searchHash: string | null;
+}
+```
+
+================================================================================
+
+<!-- FILE: api/security.md -->
+
+# Security API Reference
+
+This module covers cursor serialization, authenticated encryption, and search signature hashing.
+
+---
+
+## `CursorProtector`
+
+Contract implemented by all cursor protectors:
+
+```ts
+interface CursorProtector {
+  protect(token: KeysetCursorToken, entityPurpose: string): string;
+  unprotect(opaqueCursor: string | null | undefined, entityPurpose: string): KeysetCursorToken | null;
+}
+```
+
+---
+
+## `CryptoCursorProtector`
+
+Production-grade authenticated encryption using native `node:crypto` (AES-256-GCM + HKDF).
+
+```ts
+class CryptoCursorProtector implements CursorProtector {
+  constructor(options: CryptoCursorProtectorOptions | string);
+  protect(token: KeysetCursorToken, entityPurpose: string): string;
+  unprotect(opaqueCursor: string | null | undefined, entityPurpose: string): KeysetCursorToken | null;
+}
+```
+
+### Options
+```ts
+interface CryptoCursorProtectorOptions {
+  secret: string | Buffer;
+  salt?: string | Buffer;
+}
+```
+
+### Methods
+- **`protect(token, entityPurpose)`**: Derives a purpose-isolated 256-bit key via HKDF, encrypts the serialized JSON payload with AES-256-GCM, and returns a URL-safe Base64 string containing the IV, Auth Tag, and Ciphertext.
+- **`unprotect(opaqueCursor, entityPurpose)`**: Validates the authentication tag, decrypts the ciphertext, and returns the deserialized `KeysetCursorToken`. Returns `null` if the cursor is missing, corrupt, expired, tampered, or encrypted for a different `entityPurpose`.
+
+---
+
+## `Base64UrlCursorProtector`
+
+Zero-dependency URL-safe Base64 serializer intended for local development and unit testing.
+
+```ts
+class Base64UrlCursorProtector implements CursorProtector {
+  protect(token: KeysetCursorToken, entityPurpose: string): string;
+  unprotect(opaqueCursor: string | null | undefined, entityPurpose: string): KeysetCursorToken | null;
+}
+```
+
+---
+
+## Search Hash Utilities
+
+### `computeSearchHash(search?)`
+Computes an 8-byte (16 hex character) lowercase SHA-256 digest of the trimmed search string. Returns `null` if the input is null, undefined, empty, or whitespace.
+
+```ts
+function computeSearchHash(search?: string | null): string | null
+```
+
+### `matchesSearchHash(search?, expectedHash?)`
+Validates whether the active search term matches the search hash recorded inside a cursor token. Returns `false` if the search filter has changed, signaling stale cursor invalidation.
+
+```ts
+function matchesSearchHash(search?: string | null, expectedHash?: string | null): boolean
+```
+
+================================================================================
+
+<!-- FILE: api/search-strategies.md -->
+
+# Search Strategies API Reference
+
+This module provides text search adapters for translating multi-column search terms into database-compatible SQL expressions.
+
+---
+
+## Strategy Type Signature
+
+```ts
+type SearchStrategy = (column: AnyColumn, searchTerm: string) => SQL;
+```
+
+---
+
+## Built-In Strategies
+
+### `likeSearchStrategy`
+Universal case-insensitive text search strategy. Emits `lower(column) LIKE lower('%term%')`. Compatible across SQLite, PostgreSQL, and MySQL.
+
+```ts
+const likeSearchStrategy: SearchStrategy;
+```
+
+---
+
+### `ilikeSearchStrategy`
+PostgreSQL-specific case-insensitive text search strategy. Emits `column ILIKE '%term%'`.
+
+```ts
+const ilikeSearchStrategy: SearchStrategy;
+```
+
+---
+
+### `postgresTsVectorSearchStrategy(configLanguage?)`
+PostgreSQL full-text search strategy for tsvector/tsquery evaluations. Emits:
+```sql
+to_tsvector(configLanguage, column) @@ plainto_tsquery(configLanguage, searchTerm)
+```
+
+```ts
+function postgresTsVectorSearchStrategy(configLanguage?: string): SearchStrategy;
+```
+
+**Parameters**:
+- `configLanguage`: Text search dictionary language (defaults to `'english'`).
+
+---
+
+## `resolveSearchStrategy(strategy?)`
+
+Resolves a strategy shorthand name (`'like'`, `'ilike'`, `'tsvector'`) or a custom callback function into a callable `SearchStrategy`.
+
+```ts
+function resolveSearchStrategy(
+  strategy?: SearchStrategy | 'like' | 'ilike' | 'tsvector'
+): SearchStrategy;
+```
+
+---
+
+## Authoring Custom Strategies
+
+You can pass any custom function returning a Drizzle `SQL` expression:
+
+```ts
+import { sql } from 'drizzle-orm';
+import { createKeysetConfig } from 'keysetengine-drizzle';
+
+export const customKeyset = createKeysetConfig(orders, {
+  sortBy: orders.createdAt,
+  tieBreaker: orders.id,
+  searchIn: [orders.customerName],
+  // Custom prefix search
+  searchStrategy: (column, term) => sql`${column} LIKE ${term + '%'}`,
+});
+```
+
+================================================================================

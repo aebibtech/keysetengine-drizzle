@@ -1,0 +1,29 @@
+# KeysetEngine Drizzle
+> High-performance, database-agnostic keyset pagination and universal search library for Drizzle ORM on Node.js (18+) and Bun.
+
+Full documentation concatenated for LLMs and AI coding assistants:
+- [Complete Documentation (Single File)](https://drizzle.keysetengine.aebibtech.com/llms-full.txt): Complete, concatenated Markdown documentation covering architecture, setup, bidirectional pagination, security, database adapters, and API reference.
+
+## Documentation Index
+
+### Getting Started & Guides
+- [Overview & Quickstart](https://drizzle.keysetengine.aebibtech.com/guide/getting-started): Installation, schema definition, and route handler usage.
+- [Why Keyset Pagination?](https://drizzle.keysetengine.aebibtech.com/guide/why-keyset): Mathematical analysis of O(1) index seeks vs O(N) OFFSET scan degradation.
+- [Core Architecture](https://drizzle.keysetengine.aebibtech.com/guide/architecture): Nested boolean disjunction generation and query execution flow.
+- [Bidirectional Traversal](https://drizzle.keysetengine.aebibtech.com/guide/bidirectional): Backward/forward navigation, SQL order inversion, and array reversal.
+- [Dynamic Search & Stale Cursors](https://drizzle.keysetengine.aebibtech.com/guide/search): Multi-column search with SHA-256 search hash invalidation.
+- [Index Design & Optimization](https://drizzle.keysetengine.aebibtech.com/guide/indexing): Composite B-tree indexing rules for PostgreSQL, SQLite, and MySQL.
+- [Frequently Asked Questions](https://drizzle.keysetengine.aebibtech.com/guide/faq): Null handling, relational queries, and Date timestamp formats.
+
+### Security
+- [Cryptographic Protection](https://drizzle.keysetengine.aebibtech.com/security/cryptographic-protection): AES-256-GCM + HKDF purpose isolation, tamper detection, and Base64Url fallback.
+
+### Database Adapters
+- [PostgreSQL Adapter](https://drizzle.keysetengine.aebibtech.com/databases/postgresql): pgTable integration, ILIKE search, and tsvector full-text search.
+- [SQLite & In-Memory](https://drizzle.keysetengine.aebibtech.com/databases/sqlite): sqliteTable integration with bun:sqlite and better-sqlite3.
+- [MySQL Adapter](https://drizzle.keysetengine.aebibtech.com/databases/mysql): mysqlTable integration and collation strategies.
+
+### API Reference
+- [Core API](https://drizzle.keysetengine.aebibtech.com/api/core): createKeysetConfig, paginateKeyset, buildKeysetClause, formatKeysetPage.
+- [Security API](https://drizzle.keysetengine.aebibtech.com/api/security): CryptoCursorProtector, Base64UrlCursorProtector, computeSearchHash.
+- [Search Strategies API](https://drizzle.keysetengine.aebibtech.com/api/search-strategies): likeSearchStrategy, ilikeSearchStrategy, postgresTsVectorSearchStrategy.
