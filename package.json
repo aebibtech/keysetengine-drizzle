@@ -39,7 +39,19 @@
     "bun",
     "nodejs"
   ],
-  "author": "Paul Abib Camano — Aebibtech (paul@aebibtech.com)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aebibtech/keysetengine-drizzle.git"
+  },
+  "homepage": "https://drizzle.keysetengine.aebibtech.com",
+  "bugs": {
+    "url": "https://github.com/aebibtech/keysetengine-drizzle/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "author": "Paul Camano — StewardAxis LLC (paul@aebibtech.com)",
   "license": "MIT",
   "peerDependencies": {
     "drizzle-orm": ">=0.35.0"

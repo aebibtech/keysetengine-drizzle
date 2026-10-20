@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: TypeScript Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Typecheck
+        run: bun run typecheck
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Test Suite
+        run: bun test
+
+  docs-verify:
+    name: Documentation Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify Docs Build
+        run: bun run docs:build
+
+  build-and-pack:
+    name: Build & Package Validation
+    runs-on: ubuntu-latest
+    needs: [ typecheck, test, docs-verify ]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Release Bundle
+        run: bun run build
+
+      - name: Verify Artifacts Exist
+        run: |
+          test -f dist/index.js || { echo "Missing dist/index.js"; exit 1; }
+          test -f dist/index.mjs || { echo "Missing dist/index.mjs"; exit 1; }
+          test -f dist/index.d.ts || { echo "Missing dist/index.d.ts"; exit 1; }
+
+      - name: Validate Package Tarball (Dry Run)
+        run: npm pack --dry-run

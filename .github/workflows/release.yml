@@ -1,0 +1,83 @@
+name: Release & Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run publish without pushing to npm or creating release'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write  # Required for npm Trusted Publishing OIDC token exchange
+  contents: write  # Required to create GitHub Releases and upload assets
+
+jobs:
+  publish:
+    name: Build, Verify & Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code with Git History
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Test Verification Gate
+        run: bun test
+
+      - name: Run Typecheck Gate
+        run: bun run typecheck
+
+      - name: Build Release Bundle
+        run: bun run build
+
+      - name: Build Docs Gate
+        run: bun run docs:build
+
+      - name: Pack Distribution Tarball
+        id: pack
+        run: |
+          TARBALL=$(npm pack)
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "Packed tarball: $TARBALL"
+
+      - name: Publish to npm (via Trusted Publishing OIDC)
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "Publishing to npm with Trusted Publishing and Provenance..."
+          npm publish --provenance --access public
+
+      - name: Dry Run Publish Check
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: |
+          echo "Dry run enabled. Skipping live publish."
+          npm publish --provenance --access public --dry-run
+
+      - name: Create GitHub Release
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.tarball }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
