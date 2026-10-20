@@ -12,9 +12,9 @@ Direct TypeScript port of the [.NET KeysetEngine](https://github.com/aebibtech/k
 
 ## Why Keyset Pagination?
 
-Keyset pagination eliminates the severe $O(N)$ query degradation inherent to SQL `OFFSET` on large datasets by establishing stable, indexed boundaries using composite keys and opaque cursors:
+Keyset pagination eliminates the severe `O(N)` query degradation inherent to SQL `OFFSET` on large datasets by establishing stable, indexed boundaries using composite keys and opaque cursors:
 
-- **True $O(1)$ Keyset Pagination**: No slow `OFFSET` scans; uses nested boolean comparison trees compatible with PostgreSQL, SQLite, and MySQL.
+- **True O(1) Keyset Pagination**: No slow `OFFSET` scans; uses nested boolean comparison trees compatible with PostgreSQL, SQLite, and MySQL.
 - **Bidirectional Traversal**: Seamless forward and backward page navigation with automated in-memory ordering reversal.
 - **Tamper-Proof Opaque Cursors**: Cryptographic protection via authenticated encryption (AES-256-GCM via `node:crypto`) with purpose and entity isolation.
 - **Dynamic Multi-Column Search**: Search across multiple properties without breaking keyset boundaries or client-side evaluation.
