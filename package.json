@@ -1,6 +1,6 @@
 {
   "name": "keysetengine-drizzle",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "High-performance, database-agnostic keyset pagination and universal search library for Drizzle ORM on Node.js and Bun",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

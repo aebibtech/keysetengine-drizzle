@@ -13,13 +13,16 @@ on:
         default: false
 
 permissions:
-  id-token: write  # Required for npm Trusted Publishing OIDC token exchange
-  contents: write  # Required to create GitHub Releases and upload assets
+  contents: write
+  id-token: write
 
 jobs:
   publish:
     name: Build, Verify & Publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Checkout Code with Git History
         uses: actions/checkout@v4
@@ -35,7 +38,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: 'https://registry.npmjs.org'
+
+      - name: Sync Package Version from Git Tag
+        run: |
+          if [[ "${{ github.ref }}" =~ ^refs/tags/v(.*)$ ]]; then
+            TAG_VERSION="${BASH_REMATCH[1]}"
+            echo "Syncing package.json version to tag: $TAG_VERSION"
+            npm version "$TAG_VERSION" --no-git-tag-version --allow-same-version
+          fi
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
@@ -59,13 +69,19 @@ jobs:
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "Packed tarball: $TARBALL"
 
-      - name: Publish to npm (via Trusted Publishing OIDC)
+      - name: Publish to npm (Trusted Publishing / Token Fallback)
         if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          OPTIONAL_NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo "Publishing to npm with Trusted Publishing and Provenance..."
-          npm publish --provenance --access public
+          if [ -n "$OPTIONAL_NPM_TOKEN" ]; then
+            echo "Using NPM_TOKEN from repository secrets..."
+            echo "//registry.npmjs.org/:_authToken=${OPTIONAL_NPM_TOKEN}" > ~/.npmrc
+            npm publish --provenance --access public
+          else
+            echo "Publishing to npm via Trusted Publishing (OIDC)..."
+            npm publish --provenance --access public
+          fi
 
       - name: Dry Run Publish Check
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
