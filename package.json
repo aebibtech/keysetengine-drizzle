@@ -43,7 +43,7 @@
     "type": "git",
     "url": "git+https://github.com/aebibtech/keysetengine-drizzle.git"
   },
-  "homepage": "https://drizzle.keysetengine.aebibtech.com",
+  "homepage": "https://keysetengine-drizzle.aebibtech.com",
   "bugs": {
     "url": "https://github.com/aebibtech/keysetengine-drizzle/issues"
   },
