@@ -35,7 +35,7 @@
     "bun",
     "nodejs"
   ],
-  "author": "Paul Camano — StewardAxis LLC (paul@aebibtech.com)",
+  "author": "Paul Abib Camano — Aebibtech (paul@aebibtech.com)",
   "license": "MIT",
   "peerDependencies": {
     "drizzle-orm": ">=0.35.0"

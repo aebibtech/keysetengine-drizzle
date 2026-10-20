@@ -146,4 +146,4 @@ KeysetEngine includes multiple search strategies:
 
 ## License
 
-MIT © [Paul Camano — StewardAxis LLC](mailto:paul@aebibtech.com)
+MIT © [Paul Abib Camano — Aebibtech](mailto:paul@aebibtech.com)
