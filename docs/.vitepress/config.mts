@@ -13,14 +13,14 @@ const jsonLd = JSON.stringify({
       'license': 'https://opensource.org/licenses/MIT',
       'author': {
         '@type': 'Person',
-        'name': 'Paul Camano',
+        'name': 'Paul Abib Camano',
         'url': 'https://github.com/aebibtech'
       }
     },
     {
       '@type': 'WebSite',
       'name': 'KeysetEngine Drizzle Documentation',
-      'url': 'https://drizzle.keysetengine.aebibtech.com',
+      'url': 'https://keysetengine-drizzle.aebibtech.com',
       'description': 'Complete guides, architectural specifications, and API documentation for KeysetEngine Drizzle ORM pagination library.'
     }
   ]
@@ -35,12 +35,12 @@ export default defineConfig({
   cleanUrls: true,
 
   sitemap: {
-    hostname: 'https://drizzle.keysetengine.aebibtech.com'
+    hostname: 'https://keysetengine-drizzle.aebibtech.com'
   },
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
-    ['link', { rel: 'canonical', href: 'https://drizzle.keysetengine.aebibtech.com' }],
+    ['link', { rel: 'canonical', href: 'https://keysetengine-drizzle.aebibtech.com' }],
     ['meta', { name: 'theme-color', content: '#2563eb' }],
     ['meta', { name: 'author', content: 'Paul Camano — StewardAxis LLC' }],
     ['meta', { name: 'keywords', content: 'Drizzle ORM, Keyset Pagination, Cursor Pagination, Node.js, Bun, TypeScript, PostgreSQL, SQLite, MySQL, High Performance' }],
@@ -48,7 +48,7 @@ export default defineConfig({
     ['meta', { property: 'og:site_name', content: 'KeysetEngine Drizzle' }],
     ['meta', { property: 'og:title', content: 'KeysetEngine Drizzle — Keyset Pagination & Search' }],
     ['meta', { property: 'og:description', content: 'High-Performance Keyset Pagination & Search for Drizzle ORM on Node.js & Bun. Avoid SQL OFFSET degradation with O(1) indexed seeks.' }],
-    ['meta', { property: 'og:url', content: 'https://drizzle.keysetengine.aebibtech.com' }],
+    ['meta', { property: 'og:url', content: 'https://keysetengine-drizzle.aebibtech.com' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:title', content: 'KeysetEngine Drizzle — Keyset Pagination & Search' }],
     ['meta', { name: 'twitter:description', content: 'High-Performance Keyset Pagination & Search for Drizzle ORM on Node.js & Bun.' }],
